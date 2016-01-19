@@ -7,119 +7,32 @@ class BBCodeParser
 
     use ArrayTrait;
 
-    public $parsers = [
-        'bold' => [
-            'pattern' => '/\[b\](.*?)\[\/b\]/s',
-            'replace' => '<strong>$1</strong>',
-            'content' => '$1'
-        ],
-        'italic' => [
-            'pattern' => '/\[i\](.*?)\[\/i\]/s',
-            'replace' => '<em>$1</em>',
-            'content' => '$1'
-        ],
-        'underline' => [
-            'pattern' => '/\[u\](.*?)\[\/u\]/s',
-            'replace' => '<u>$1</u>',
-            'content' => '$1'
-        ],
-        'linethrough' => [
-            'pattern' => '/\[s\](.*?)\[\/s\]/s',
-            'replace' => '<strike>$1</strike>',
-            'content' => '$1'
-        ],
-        'size' => [
-            'pattern' => '/\[size\=([1-7])\](.*?)\[\/size\]/s',
-            'replace' => '<font size="$1">$2</font>',
-            'content' => '$2'
-        ],
-        'color' => [
-            'pattern' => '/\[color\=(#[A-f0-9]{6}|#[A-f0-9]{3})\](.*?)\[\/color\]/s',
-            'replace' => '<font color="$1">$2</font>',
-            'content' => '$2'
-        ],
-        'center' => [
-            'pattern' => '/\[center\](.*?)\[\/center\]/s',
-            'replace' => '<div style="text-align:center;">$1</div>',
-            'content' => '$1'
-        ],
-        'left' => [
-            'pattern' => '/\[left\](.*?)\[\/left\]/s',
-            'replace' => '<div style="text-align:left;">$1</div>',
-            'content' => '$1'
-        ],
-        'right' => [
-            'pattern' => '/\[right\](.*?)\[\/right\]/s',
-            'replace' => '<div style="text-align:right;">$1</div>',
-            'content' => '$1'
-        ],
-        'quote' => [
-            'pattern' => '/\[quote\](.*?)\[\/quote\]/s',
-            'replace' => '<blockquote>$1</blockquote>',
-            'content' => '$1'
-        ],
-        'namedquote' => [
-            'pattern' => '/\[quote\=(.*?)\](.*)\[\/quote\]/s',
-            'replace' => '<blockquote><small>$1</small>$2</blockquote>',
-            'content' => '$2'
-        ],
-        'link' => [
-            'pattern' => '/\[url\](.*?)\[\/url\]/s',
-            'replace' => '<a href="$1">$1</a>',
-            'content' => '$1'
-        ],
-        'namedlink' => [
-            'pattern' => '/\[url\=(.*?)\](.*?)\[\/url\]/s',
-            'replace' => '<a href="$1">$2</a>',
-            'content' => '$2'
-        ],
-        'image' => [
-            'pattern' => '/\[img\](.*?)\[\/img\]/s',
-            'replace' => '<img src="$1">',
-            'content' => '$1'
-        ],
-        'orderedlistnumerical' => [
-            'pattern' => '/\[list=1\](.*?)\[\/list\]/s',
-            'replace' => '<ol>$1</ol>',
-            'content' => '$1'
-        ],
-        'orderedlistalpha' => [
-            'pattern' => '/\[list=a\](.*?)\[\/list\]/s',
-            'replace' => '<ol type="a">$1</ol>',
-            'content' => '$1'
-        ],
-        'unorderedlist' => [
-            'pattern' => '/\[list\](.*?)\[\/list\]/s',
-            'replace' => '<ul>$1</ul>',
-            'content' => '$1'
-        ],
-        'listitem' => [
-            'pattern' => '/\[\*\](.*)/',
-            'replace' => '<li>$1</li>',
-            'content' => '$1'
-        ],
-        'code' => [
-            'pattern' => '/\[code\](.*?)\[\/code\]/s',
-            'replace' => '<code>$1</code>',
-            'content' => '$1'
-        ],
-        'youtube' => [
-            'pattern' => '/\[youtube\](.*?)\[\/youtube\]/s',
-            'replace' => '<iframe width="560" height="315" src="//www.youtube.com/embed/$1" frameborder="0" allowfullscreen></iframe>',
-            'content' => '$1'
-        ],
-        'linebreak' => [
-            'pattern' => '/\r\n/',
-            'replace' => '<br />',
-            'content' => ''
-        ]
-    ];
-
-    private $enabledParsers;
+    private $parsers = [];
+    private $enabledParsers = [];
+    private $BBTagsHandled = [];
 
     public function __construct()
     {
-        $this->enabledParsers = $this->parsers;
+        $tags = config('bbcode.tags');
+        $parsers = [];
+        foreach ($tags as $name => $parser) {
+            if (array_has($parser, 'without_attribute')) {
+                $parsers[$name] = [
+                    'pattern' => '/\[quote\](.*?)\[\/quote\]/s',
+                    'replace' => $parser['without_attribute'],
+                    'content' => '$1',
+                ];
+            }
+            if (array_has($parser, 'with_attribute')) {
+                $parsers[$name . '_a'] = [
+                    'pattern' => '/\[quote\=(.*?)\](.*?)\[\/quote\]/s',
+                    'replace' => $parser['with_attribute'],
+                    'content' => '$2',
+                ];
+            }
+        }
+        $this->parsers = $this->enabledParsers = $parsers;
+        $this->BBTagsHandled = array_keys($tags);
     }
 
     /**
@@ -130,11 +43,27 @@ class BBCodeParser
     public function parse($source, $caseInsensitive = false)
     {
         foreach ($this->enabledParsers as $name => $parser) {
-            $pattern = ($caseInsensitive) ? $parser['pattern'].'i' : $parser['pattern'];
+            $pattern = ($caseInsensitive) ? $parser['pattern'] . 'i' : $parser['pattern'];
 
             $source = $this->searchAndReplace($pattern, $parser['replace'], $source);
         }
+        $source = $this->cleanup($source);
         return $source;
+    }
+
+    /**
+     * Cleans up mismatched tags after the parser is done with the string
+     * @param $string
+     */
+    protected function cleanup($string)
+    {
+        $search = [];
+        $replace = '';
+        foreach ($this->BBTagsHandled as $tag) {
+            $search[] = '[' . $tag . ']';
+            $search[] = '[/' . $tag . ']';
+        }
+        return str_ireplace($search, $replace, $string);
     }
 
     /**
@@ -145,10 +74,11 @@ class BBCodeParser
     public function stripBBCodeTags($source)
     {
         foreach ($this->parsers as $name => $parser) {
-            $source = $this->searchAndReplace($parser['pattern'].'i', $parser['content'], $source);
+            $source = $this->searchAndReplace($parser['pattern'] . 'i', $parser['content'], $source);
         }
         return $source;
     }
+
     /**
      * Searches after a specified pattern and replaces it with provided structure
      * @param  string $pattern Search pattern
@@ -228,14 +158,14 @@ class BBCodeParser
      */
     public function setParser($name, $pattern, $replace)
     {
-        $this->parsers[$name] = array(
+        $this->parsers[$name] = [
             'pattern' => $pattern,
-            'replace' => $replace
-        );
+            'replace' => $replace,
+        ];
 
-        $this->enabledParsers[$name] = array(
+        $this->enabledParsers[$name] = [
             'pattern' => $pattern,
-            'replace' => $replace
-        );
+            'replace' => $replace,
+        ];
     }
 }
