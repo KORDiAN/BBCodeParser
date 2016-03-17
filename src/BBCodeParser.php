@@ -53,7 +53,8 @@ class BBCodeParser
 
     /**
      * Cleans up mismatched tags after the parser is done with the string
-     * @param $string
+     * @param string $string
+     * @return string
      */
     protected function cleanup($string)
     {
@@ -75,6 +76,19 @@ class BBCodeParser
     {
         foreach ($this->parsers as $name => $parser) {
             $source = $this->searchAndReplace($parser['pattern'] . 'i', $parser['content'], $source);
+        }
+        return $source;
+    }
+
+    /**
+     * Remove all BBCode AND the text contained within
+     * @param  string $source
+     * @return string Parsed text
+     */
+    public function stripBBCodeTagsAndContent($source)
+    {
+        foreach ($this->parsers as $name => $parser) {
+            $source = $this->searchAndReplace($parser['pattern'] . 'i', '', $source);
         }
         return $source;
     }
